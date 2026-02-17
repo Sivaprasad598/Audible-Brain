@@ -164,17 +164,28 @@ export async function validateVocalAnswer(
   const ai = getAI();
   const model = "gemini-3-flash-preview";
 
-  const prompt = `Listen to the provided audio (the student's answer) and compare it against the reference content.
-  Reference content is provided as ${referencePayload.text ? 'text' : 'an image'}.
-  
-  Provide feedback in ${language} including:
-  1. 'correctnessPercentage': How accurate is the spoken answer compared to the reference (0-100)?
-  2. 'transcription': A transcription of what the user said.
-  3. 'grammarMistakes': A list of grammar or pronunciation errors found in the spoken answer.
-  4. 'contentFeedback': Detail what parts of the reference were missed or inaccurately explained.
-  5. 'enhancementSuggestions': How the user can improve their verbal explanation next time.
-  
-  Return result as JSON.`;
+  const prompt = `Act as a high-precision neural examiner. Your task is to perform a rigorous GAP ANALYSIS between the student's spoken answer (audio) and the provided reference content.
+
+Reference content is provided as ${referencePayload.text ? 'text' : 'an image'}.
+
+Evaluation Methodology:
+1. SCAN REFERENCE: Identify all key concepts, facts, and details present in the reference material.
+2. SCAN SPOKEN ANSWER: Transcribe the audio and map it against the identified key concepts.
+3. CALCULATE SCORE: 
+   - 100% is reserved for a perfect, comprehensive explanation covering ALL key points accurately.
+   - OMISSION PENALTY: If the user only explains 50% of the concepts found in the reference, the 'correctnessPercentage' MUST be 50% or lower. Do not be lenient.
+   - ACCURACY PENALTY: Deduct significantly for any misinformation or incorrect definitions compared to the reference.
+
+Provide feedback in ${language} including:
+1. 'correctnessPercentage': A precise score (0-100) based strictly on coverage and accuracy.
+2. 'transcription': A verbatim transcription of the user's spoken answer.
+3. 'grammarMistakes': List linguistic, grammar, or heavy pronunciation errors found.
+4. 'contentFeedback':
+    - 'missedPoints': A list of specific concepts from the reference that were COMPLETELY OMITTED or glossed over.
+    - 'accuracyReview': A concise evaluation of what was explained well vs what was incorrect.
+5. 'enhancementSuggestions': Strategic advice on how to improve verbal recall and explanation depth for this specific topic.
+
+Return the result strictly as a JSON object.`;
 
   const parts: any[] = [
     { text: prompt },

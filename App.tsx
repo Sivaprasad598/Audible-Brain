@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { AppState, FileType, HistoryItem, ViewMode, VoiceOption, LANGUAGES, BASE_VOICES, VoicePersona, AssessmentResult, AnalysisResult, ListenToMeResult } from './types';
 import LanguageSelector from './components/LanguageSelector';
 import AnalysisView from './components/AnalysisView';
@@ -91,6 +92,15 @@ const App: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+
+  // Memoized URL to prevent flicker and leaks
+  const audioUrl = useMemo(() => audioBlob ? URL.createObjectURL(audioBlob) : null, [audioBlob]);
+
+  useEffect(() => {
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, [audioUrl]);
 
   useEffect(() => {
     const savedHistory = localStorage.getItem(STORAGE_KEY_HISTORY);
@@ -740,8 +750,8 @@ const App: React.FC = () => {
                       <p className="text-xs font-black uppercase tracking-widest text-slate-500">
                         {isRecording ? "Listening to your thoughts..." : audioBlob ? "Vocal imprint ready" : "Awaiting Neural Command"}
                       </p>
-                      {audioBlob && (
-                         <audio src={URL.createObjectURL(audioBlob)} controls className="w-full rounded-full bg-white/5" />
+                      {audioUrl && (
+                         <audio src={audioUrl} controls className="w-full rounded-full bg-white/5" />
                       )}
                     </div>
                   </div>
@@ -762,7 +772,7 @@ const App: React.FC = () => {
                        <p className="text-lg font-black text-white animate-pulse">Syncing Vocal Imprint...</p>
                     </div>
                   )}
-                  {state.listenToMeResult && <ListenToMeView result={state.listenToMeResult} />}
+                  {state.listenToMeResult && <ListenToMeView result={state.listenToMeResult} audioUrl={audioUrl || undefined} />}
                   {!state.listenToMeResult && !state.isAnalyzing && (
                     <div className="h-full border-2 border-dashed border-white/5 rounded-[40px] flex flex-col items-center justify-center p-12 text-center text-slate-700">
                       <p className="text-3xl font-black uppercase mb-4">Awaiting Signal</p>

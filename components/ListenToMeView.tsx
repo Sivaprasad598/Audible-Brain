@@ -4,11 +4,12 @@ import { ListenToMeResult } from '../types';
 
 interface Props {
   result: ListenToMeResult;
+  audioUrl?: string;
 }
 
-const ListenToMeView: React.FC<Props> = ({ result }) => {
+const ListenToMeView: React.FC<Props> = ({ result, audioUrl }) => {
   return (
-    <div className="space-y-8 animate-in slide-in-from-right duration-700">
+    <div className="space-y-8 animate-in slide-in-from-right duration-700 pb-12">
       {/* Accuracy Header */}
       <div className="bg-slate-900/80 p-8 rounded-[40px] border border-white/10 shadow-2xl text-center space-y-4">
         <div className="inline-block px-4 py-1.5 bg-indigo-500/10 rounded-full border border-indigo-500/20 text-indigo-400 font-black text-[10px] uppercase tracking-widest">
@@ -19,6 +20,26 @@ const ListenToMeView: React.FC<Props> = ({ result }) => {
         </h2>
         <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Accuracy Rating</p>
       </div>
+
+      {/* NEW: Recorded Audio Input Display & Download */}
+      {audioUrl && (
+        <div className="bg-indigo-600/10 p-8 rounded-[32px] border border-indigo-500/20 space-y-4 shadow-inner">
+          <div className="flex items-center justify-between gap-4">
+            <h3 className="text-xs font-black text-indigo-400 uppercase tracking-widest">Your Vocal Imprint</h3>
+            <a 
+              href={audioUrl} 
+              download="neural-vocal-imprint.webm" 
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-glow-indigo flex items-center gap-2"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download
+            </a>
+          </div>
+          <audio src={audioUrl} controls className="w-full rounded-full bg-black/40 border border-white/5 h-12" />
+        </div>
+      )}
 
       {/* Transcription Block */}
       <div className="bg-white/5 p-8 rounded-[32px] border border-white/5 space-y-4">
