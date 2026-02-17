@@ -13,37 +13,40 @@ const STORAGE_KEY_HISTORY = 'audilebrain_history_v3';
 const STORAGE_KEY_PROFILE = 'audilebrain_profile_v3';
 const STORAGE_KEY_AUTH = 'audilebrain_auth_v1';
 
-// --- IndexedDB for PDF Storage ---
+// --- IndexedDB for Persistent Storage ---
 const DB_NAME = 'AudileBrainDB';
-const STORE_NAME = 'pdfs';
+const PDF_STORE = 'pdfs';
+const AUDIO_STORE = 'audio';
 
 const initDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(STORE_NAME);
+    const request = indexedDB.open(DB_NAME, 2);
+    request.onupgradeneeded = (event: any) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(PDF_STORE)) db.createObjectStore(PDF_STORE);
+      if (!db.objectStoreNames.contains(AUDIO_STORE)) db.createObjectStore(AUDIO_STORE);
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 };
 
-const storePDF = async (id: string, blob: Blob) => {
+const storeBlob = async (storeName: string, id: string, blob: Blob) => {
   const db = await initDB();
   return new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
+    const transaction = db.transaction(storeName, 'readwrite');
+    const store = transaction.objectStore(storeName);
     const request = store.put(blob, id);
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 };
 
-const getPDF = async (id: string): Promise<Blob | null> => {
+const getBlob = async (storeName: string, id: string): Promise<Blob | null> => {
   const db = await initDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readonly');
-    const store = transaction.objectStore(STORE_NAME);
+    const transaction = db.transaction(storeName, 'readonly');
+    const store = transaction.objectStore(storeName);
     const request = store.get(id);
     request.onsuccess = () => resolve(request.result || null);
     request.onerror = () => reject(request.error);
@@ -205,7 +208,7 @@ const App: React.FC = () => {
         }
         
         try {
-          await storePDF(storeId!, new Blob([arrayBuffer], { type: 'application/pdf' }));
+          await storeBlob(PDF_STORE, storeId!, new Blob([arrayBuffer], { type: 'application/pdf' }));
         } catch (err) {
           console.warn("Failed to store PDF in IDB:", err);
         }
@@ -250,6 +253,7 @@ const App: React.FC = () => {
               id: currentActiveId!,
               title: s.file?.name || 'Untitled Document',
               type: 'pdf',
+              module: 'explain',
               date: Date.now(),
               language: s.language,
               pdfData: {
@@ -278,7 +282,15 @@ const App: React.FC = () => {
           }
         } else {
           const title = s.fileType === 'image' ? s.file?.name : (s.textInput.slice(0, 30) + '...');
-          const newItem: HistoryItem = { id: Math.random().toString(36).substr(2, 9), title: title || 'Neural Input', type: s.fileType, date: Date.now(), language: s.language, result };
+          const newItem: HistoryItem = { 
+            id: Math.random().toString(36).substr(2, 9), 
+            title: title || 'Neural Input', 
+            type: s.fileType, 
+            module: 'explain',
+            date: Date.now(), 
+            language: s.language, 
+            result 
+          };
           newHistory = [newItem, ...newHistory];
         }
 
@@ -299,9 +311,29 @@ const App: React.FC = () => {
   };
 
   const handleRecallHistory = async (item: HistoryItem) => {
+    // Reset temporary states
+    setState(s => ({ ...s, assessmentResult: null, listenToMeResult: null, result: null, error: null, view: 'dashboard' }));
+    
+    if (item.module === 'correctMe' && item.assessmentResult) {
+      setState(s => ({ ...s, view: 'correctMe', assessmentResult: item.assessmentResult || null }));
+      return;
+    }
+
+    if (item.module === 'listenToMe' && item.listenToMeResult) {
+      // Try to recover audio if possible
+      try {
+        const blob = await getBlob(AUDIO_STORE, item.id);
+        if (blob) setAudioBlob(blob);
+      } catch (err) { console.warn("Audio recovery failed", err); }
+      
+      setState(s => ({ ...s, view: 'listenToMe', listenToMeResult: item.listenToMeResult || null }));
+      return;
+    }
+
+    // Default 'explain' logic
     if (item.type === 'pdf') {
       try {
-        const storedBlob = await getPDF(item.id);
+        const storedBlob = await getBlob(PDF_STORE, item.id);
         if (storedBlob) {
           const arrayBuffer = await storedBlob.arrayBuffer();
           const pdfDoc = await (window as any).pdfjsLib.getDocument(new Uint8Array(arrayBuffer)).promise;
@@ -318,7 +350,6 @@ const App: React.FC = () => {
             activeHistoryId: item.id,
             language: item.language,
             result: item.pdfData?.pageResults[targetPage] || null,
-            error: null
           }));
           
           setTimeout(() => {
@@ -410,7 +441,25 @@ const App: React.FC = () => {
       }
 
       const res = await assessContent(images, referenceContent, state.language);
-      setState(s => ({ ...s, assessmentResult: res, isAnalyzing: false }));
+      
+      const newItem: HistoryItem = {
+        id: Math.random().toString(36).substr(2, 9),
+        title: correctMeFiles[0]?.name || 'Answer Audit',
+        type: 'image',
+        module: 'correctMe',
+        date: Date.now(),
+        language: state.language,
+        score: res.overallScore,
+        assessmentResult: res
+      };
+
+      setState(s => ({ 
+        ...s, 
+        assessmentResult: res, 
+        isAnalyzing: false,
+        history: [newItem, ...s.history],
+        profile: { ...s.profile, totalAnalyses: s.profile.totalAnalyses + 1 }
+      }));
     } catch (err: any) {
       setState(s => ({ ...s, isAnalyzing: false, error: err.message || 'Neural failure.' }));
     }
@@ -479,7 +528,29 @@ const App: React.FC = () => {
       }
 
       const res = await validateVocalAnswer(audioBase64, refPayload, state.language);
-      setState(s => ({ ...s, listenToMeResult: res, isAnalyzing: false }));
+      
+      const historyId = Math.random().toString(36).substr(2, 9);
+      const newItem: HistoryItem = {
+        id: historyId,
+        title: state.file?.name || (state.textInput.slice(0, 20) + '...'),
+        type: state.fileType,
+        module: 'listenToMe',
+        date: Date.now(),
+        language: state.language,
+        score: res.correctnessPercentage,
+        listenToMeResult: res
+      };
+
+      // Persist audio blob for history recall
+      await storeBlob(AUDIO_STORE, historyId, audioBlob);
+
+      setState(s => ({ 
+        ...s, 
+        listenToMeResult: res, 
+        isAnalyzing: false,
+        history: [newItem, ...s.history],
+        profile: { ...s.profile, totalAnalyses: s.profile.totalAnalyses + 1 }
+      }));
     } catch (err: any) {
       setState(s => ({ ...s, isAnalyzing: false, error: err.message || "Voice processing failed." }));
     }
@@ -638,7 +709,6 @@ const App: React.FC = () => {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
                 <div className="space-y-8">
-                  {/* Step 1: Reference Key */}
                   <div className="bg-white/5 p-8 rounded-[40px] border border-white/10 shadow-xl space-y-6">
                     <h3 className="text-xs font-black uppercase text-indigo-400 tracking-widest">Stage 1: Reference Source</h3>
                     <div className="flex gap-2">
@@ -655,7 +725,6 @@ const App: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Step 2: Answer Sheets */}
                   <div className="bg-white/5 p-8 rounded-[40px] border border-white/10 shadow-xl space-y-6">
                     <h3 className="text-xs font-black uppercase text-indigo-400 tracking-widest">Stage 2: Student Input</h3>
                     <div 
@@ -719,7 +788,6 @@ const App: React.FC = () => {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                 <div className="space-y-8">
-                  {/* Step 1: Reference */}
                   <div className="bg-white/5 p-8 rounded-[40px] border border-white/10 shadow-xl space-y-6">
                     <h3 className="text-xs font-black uppercase text-indigo-400 tracking-widest">Step 1: Calibration Target</h3>
                     <div className="flex gap-2">
@@ -737,7 +805,6 @@ const App: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Step 2: Audio Recording */}
                   <div className="bg-white/5 p-8 rounded-[40px] border border-white/10 shadow-xl space-y-8">
                     <h3 className="text-xs font-black uppercase text-indigo-400 tracking-widest">Step 2: Vocalize Response</h3>
                     <div className="flex flex-col items-center gap-6">
@@ -798,19 +865,31 @@ const App: React.FC = () => {
                    ) : state.history.map(item => (
                      <div key={item.id} className="p-5 md:p-10 bg-white/5 border border-white/10 rounded-[32px] md:rounded-[48px] flex flex-col md:flex-row items-center justify-between group hover:bg-white/10 transition-all cursor-pointer shadow-4xl gap-6 md:gap-10" onClick={() => handleRecallHistory(item)}>
                         <div className="flex items-center gap-5 md:gap-8 w-full md:w-auto">
-                           <div className="h-16 w-16 md:h-24 md:w-24 bg-indigo-600/10 text-indigo-400 rounded-2xl md:rounded-[32px] flex items-center justify-center font-black text-lg md:text-2xl border border-indigo-500/10 shadow-inner shrink-0">{item.type === 'pdf' ? 'PDF' : item.type === 'image' ? 'IMG' : 'DOC'}</div>
+                           <div className="h-16 w-16 md:h-24 md:w-24 bg-indigo-600/10 text-indigo-400 rounded-2xl md:rounded-[32px] flex items-center justify-center font-black text-lg md:text-2xl border border-indigo-500/10 shadow-inner shrink-0">
+                              {item.module === 'explain' ? (item.type === 'pdf' ? 'PDF' : item.type === 'image' ? 'IMG' : 'DOC') : item.module === 'correctMe' ? 'AUDIT' : 'VOCAL'}
+                           </div>
                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-3 mb-2">
+                                <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border ${item.module === 'explain' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' : item.module === 'correctMe' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                                  {item.module}
+                                </span>
+                                {item.score !== undefined && (
+                                  <span className="text-xs font-black text-white bg-indigo-600 px-2 py-0.5 rounded-lg shadow-glow-indigo">
+                                    {item.score}%
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-lg md:text-3xl lg:text-4xl font-black text-white tracking-tighter truncate group-hover:text-indigo-400 transition-colors leading-tight">{item.title}</p>
                               <div className="flex flex-wrap items-center gap-2 md:gap-4 mt-2 md:mt-4">
                                  <span className="text-[8px] md:text-[11px] font-black text-slate-500 bg-black/40 px-3 md:px-4 py-1.5 rounded-full border border-white/5 uppercase tracking-widest">{new Date(item.date).toLocaleDateString()}</span>
                                  <span className="text-[8px] md:text-[11px] font-black text-indigo-400 uppercase tracking-widest">{item.language}</span>
-                                 {item.type === 'pdf' && (
+                                 {item.module === 'explain' && item.type === 'pdf' && (
                                    <span className="text-[8px] md:text-[11px] font-black text-emerald-400 uppercase tracking-widest">{Object.keys(item.pdfData?.pageResults || {}).length} Node(s)</span>
                                  )}
                               </div>
                            </div>
                         </div>
-                        <button className="w-full md:w-auto px-8 md:px-12 py-3 md:py-4 bg-indigo-600 text-white rounded-2xl md:rounded-[24px] font-black uppercase text-[10px] md:text-base tracking-widest hover:bg-indigo-500 transition-all shadow-glow-indigo border border-white/10 shrink-0">RESUME</button>
+                        <button className="w-full md:w-auto px-8 md:px-12 py-3 md:py-4 bg-indigo-600 text-white rounded-2xl md:rounded-[24px] font-black uppercase text-[10px] md:text-base tracking-widest hover:bg-indigo-500 transition-all shadow-glow-indigo border border-white/10 shrink-0">EXPAND</button>
                      </div>
                    ))}
                 </div>

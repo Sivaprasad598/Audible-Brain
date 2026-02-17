@@ -53,6 +53,7 @@ export interface ListenToMeResult {
 
 export type FileType = 'pdf' | 'image' | 'text' | null;
 export type VoiceOption = 'Kore' | 'Charon' | 'Puck' | 'Fenrir' | 'Zephyr';
+export type HistoryModule = 'explain' | 'correctMe' | 'listenToMe';
 
 export interface VoicePersona {
   voiceId: VoiceOption;
@@ -65,6 +66,8 @@ export interface HistoryItem {
   type: FileType;
   date: number;
   language: string;
+  module: HistoryModule;
+  score?: number;
   pdfData?: {
     pageResults: { [page: number]: AnalysisResult };
     lastViewedPage: number;
@@ -72,6 +75,8 @@ export interface HistoryItem {
     completedPages: number[];
   };
   result?: AnalysisResult;
+  assessmentResult?: AssessmentResult;
+  listenToMeResult?: ListenToMeResult;
 }
 
 export interface UserProfile {
