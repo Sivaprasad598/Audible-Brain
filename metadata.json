@@ -1,0 +1,8 @@
+{
+  "name": "Audile Brain",
+  "description": "Transform documents and images into personalized audio lessons with customized narrator voices.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
